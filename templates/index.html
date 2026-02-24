@@ -1,0 +1,1731 @@
+<!DOCTYPE html>
+<!--
+  Sistema de Monitoreo de Red - Instituto Tecnológico de Oaxaca
+  Vista principal: Mapa, Dashboard, Topología, Gestión Teléfonos/Edificios/Usuarios
+  Requiere login. Panel Usuarios solo visible para admin.
+-->
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Topología Red - Tecnológico Oaxaca</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+  <style>
+    :root {
+      --bg: #ffffff;
+      --card: #1a2332;
+      --border: #2d3a4f;
+      --text: #e6edf3;
+      --green: #3fb950;
+      --red: #f85149;
+      --accent: #58a6ff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+    }
+    .sidebar {
+      width: 260px;
+      min-width: 260px;
+      background: #0d2137;
+      color: #e6edf3;
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid rgba(255,255,255,0.06);
+      overflow-y: auto;
+    }
+    .sidebar-header {
+      padding: 24px 20px 16px;
+    }
+    .sidebar-header .logo {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: 0.02em;
+      margin: 0 0 10px 0;
+    }
+    .sidebar-header .badge {
+      display: inline-block;
+      background: #fff;
+      color: #0d2137;
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 4px 12px;
+      border-radius: 6px;
+    }
+    .sidebar-sep {
+      height: 1px;
+      background: rgba(255,255,255,0.1);
+      margin: 0 16px 12px;
+    }
+    .sidebar-nav {
+      flex: 1;
+      padding: 8px 12px 16px;
+    }
+    .sidebar-nav .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 14px;
+      margin-bottom: 4px;
+      border-radius: 8px;
+      cursor: pointer;
+      color: #8b949e;
+      text-decoration: none;
+      font-size: 0.95rem;
+      font-weight: 500;
+      border: none;
+      background: none;
+      width: 100%;
+      text-align: left;
+      font-family: inherit;
+    }
+    .sidebar-nav .nav-item:hover {
+      color: #e6edf3;
+      background: rgba(255,255,255,0.06);
+    }
+    .sidebar-nav .nav-item.activo {
+      background: rgba(88, 166, 255, 0.2);
+      color: #58a6ff;
+    }
+    .sidebar-nav .nav-item.nav-logout {
+      color: #e6a020;
+      margin-top: 12px;
+    }
+    .sidebar-nav .nav-item.nav-logout:hover {
+      background: rgba(230, 160, 32, 0.15);
+      color: #f0b429;
+    }
+    .sidebar-nav .nav-item .icon { font-size: 1.1rem; opacity: 0.9; }
+    .sidebar-footer {
+      padding: 16px 20px;
+      font-size: 0.8rem;
+      color: #6e7681;
+    }
+    .main-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      padding: 20px;
+      overflow: auto;
+    }
+    h1 { font-size: 1.25rem; margin: 0 0 16px 0; color: var(--accent); }
+    .panel { display: none; flex: 1; flex-direction: column; min-height: 0; }
+    .panel.activo { display: flex; }
+
+    /* Croquis */
+    .toolbar {
+      margin-bottom: 16px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    .toolbar button {
+      background: var(--accent);
+      color: var(--bg);
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    .toolbar button:hover { filter: brightness(1.1); }
+    .toolbar button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .toolbar .status { color: #8b949e; font-size: 0.9rem; }
+
+    .croquis {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 24px;
+      min-height: 400px;
+      overflow: auto;
+    }
+    /* Topología en árbol: core arriba, switches abajo, teléfonos al lado de cada switch */
+    .croquis-arbol {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 100%;
+    }
+    .arbol-core {
+      background: var(--bg);
+      border: 2px solid var(--accent);
+      border-radius: 8px;
+      padding: 12px 20px;
+      text-align: center;
+      background: rgba(88, 166, 255, 0.1);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    }
+    .arbol-core .titulo { font-weight: 600; margin-bottom: 4px; }
+    .arbol-core .sub { font-size: 0.8rem; color: #8b949e; }
+    .arbol-tronco {
+      width: 2px;
+      height: 20px;
+      background: var(--border);
+      margin: 4px 0;
+    }
+    .arbol-ramas {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 28px 32px;
+      margin-top: 8px;
+    }
+    .arbol-rama {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-width: 120px;
+    }
+    .arbol-linea {
+      width: 2px;
+      height: 14px;
+      background: var(--border);
+      margin-bottom: 2px;
+    }
+    .arbol-switch {
+      background: var(--bg);
+      border: 2px solid #8b949e;
+      border-radius: 8px;
+      padding: 10px 16px;
+      text-align: center;
+      min-width: 120px;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .arbol-switch.conectado { border-color: var(--green); background: rgba(63, 185, 80, 0.15); }
+    .arbol-switch.desconectado { border-color: var(--red); background: rgba(248, 81, 73, 0.15); }
+    .arbol-switch.sin-ping { border-color: var(--border); }
+    .arbol-switch .titulo { font-weight: 600; font-size: 0.95rem; margin-bottom: 2px; }
+    .arbol-switch .sub { font-size: 0.75rem; color: #8b949e; }
+    .arbol-switch .estado { font-size: 0.7rem; margin-top: 4px; }
+    .arbol-telefonos {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 10px;
+      justify-content: center;
+      margin-top: 10px;
+      max-width: 320px;
+    }
+    .arbol-telefono {
+      background: var(--bg);
+      border: 2px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 10px;
+      text-align: center;
+      min-width: 72px;
+      font-size: 0.8rem;
+      transition: border-color 0.2s;
+    }
+    .arbol-telefono .titulo { font-weight: 600; font-size: 0.85rem; }
+    .arbol-telefono .sub { font-size: 0.7rem; color: #8b949e; }
+    .arbol-telefono .estado { font-size: 0.65rem; margin-top: 2px; }
+    .arbol-telefono.conectado { border-color: var(--green); background: rgba(63, 185, 80, 0.15); }
+    .arbol-telefono.desconectado { border-color: var(--red); background: rgba(248, 81, 73, 0.15); }
+    .arbol-telefono.sin-ping { border-color: var(--border); }
+
+    .nivel {
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      gap: 20px;
+      flex-wrap: wrap;
+      margin: 16px 0;
+    }
+    .nivel.switches { gap: 24px 28px; align-items: flex-start; }
+    .nivel.core { margin-top: 0; }
+    .nivel.telefonos { margin-bottom: 0; }
+    .lineas {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 8px 16px;
+      min-height: 24px;
+      align-items: center;
+      align-content: center;
+      max-width: 100%;
+    }
+    .linea { width: 2px; height: 100%; background: var(--border); flex-shrink: 0; }
+    .nodo {
+      background: var(--bg);
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 20px;
+      text-align: center;
+      min-width: 120px;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .nodo.core { border-color: var(--accent); background: rgba(88, 166, 255, 0.1); }
+    .nodo.switch { border-color: #8b949e; }
+    .nodo.telefono { min-width: 100px; padding: 8px 14px; font-size: 0.9rem; }
+    .nodo.telefono.conectado { border-color: var(--green); background: rgba(63, 185, 80, 0.15); }
+    .nodo.telefono.desconectado { border-color: var(--red); background: rgba(248, 81, 73, 0.15); }
+    .nodo.telefono.sin-ping { border-color: var(--border); }
+    .nodo.switch.conectado { border-color: var(--green); background: rgba(63, 185, 80, 0.15); }
+    .nodo.switch.desconectado { border-color: var(--red); background: rgba(248, 81, 73, 0.15); }
+    .nodo.switch.sin-ping { border-color: var(--border); }
+    .nodo .titulo { font-weight: 600; margin-bottom: 4px; }
+    .nodo .sub { font-size: 0.8rem; color: #8b949e; }
+    .nodo .estado { font-size: 0.75rem; margin-top: 4px; }
+    .grupo-switch {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      min-width: 140px;
+      max-width: 200px;
+    }
+    .grupo-switch .sw { margin-bottom: 4px; }
+    .grupo-telefonos {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .paginacion-bar {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      margin-top: 16px;
+      padding: 10px 0;
+    }
+    .paginacion-bar button {
+      padding: 8px 14px;
+      font-size: 0.9rem;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .paginacion-bar button:hover { filter: brightness(1.1); }
+    .paginacion-bar button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .paginacion-bar .paginacion-info { font-size: 0.9rem; color: #333; }
+    .dashboard-selector {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+    .dashboard-selector select {
+      padding: 10px 14px;
+      font-size: 1rem;
+      min-width: 220px;
+      border: 1px solid #d0d4d9;
+      border-radius: 6px;
+      background: #fff;
+    }
+    .dashboard-selector .btn-toolbar {
+      padding: 10px 16px;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    .dashboard-selector .btn-toolbar:hover { filter: brightness(1.1); }
+
+    /* Tabla - Gestión de Equipos: fondo claro, letras negras */
+    #panel-tabla, #panel-edificios, #panel-dashboard, #panel-usuarios {
+      background: #f0f2f5;
+    }
+    #panel-tabla .gestion-header {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #000;
+      margin: 0 0 16px 0;
+    }
+    #panel-tabla .toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    #panel-tabla .realtime-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 0;
+    }
+    #panel-tabla .realtime-bar label { margin: 0; color: #000; }
+    #panel-tabla .realtime-status { color: #0d6b0d; font-size: 0.9rem; }
+    #panel-tabla .toolbar-buttons { display: flex; gap: 10px; align-items: center; }
+    #panel-tabla .toolbar-buttons .btn-toolbar {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 0.9rem;
+      cursor: pointer;
+    }
+    #panel-tabla .toolbar-buttons .btn-toolbar:hover { filter: brightness(1.1); }
+    #panel-tabla .toolbar-buttons .btn-toolbar.btn-agregar::before { content: '+ '; }
+    .tabla-wrap {
+      overflow-x: auto;
+      border: 1px solid #d0d4d9;
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+    .tabla-wrap table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .tabla-wrap th,
+    .tabla-wrap td {
+      padding: 12px 16px;
+      text-align: left;
+      border-bottom: 1px solid #e8eaed;
+    }
+    .tabla-wrap thead tr {
+      background: #f8f9fa;
+    }
+    .tabla-wrap th {
+      font-weight: 700;
+      font-size: 0.9rem;
+      color: #000;
+    }
+    .tabla-wrap tbody tr {
+      background: #fff;
+    }
+    .tabla-wrap tbody tr:hover {
+      background: #f5f6f8;
+    }
+    .tabla-wrap td {
+      color: #000;
+    }
+    .tabla-wrap td.col-ip {
+      color: #bc2d89;
+      font-family: ui-monospace, monospace;
+    }
+    .badge {
+      display: inline-block;
+      padding: 5px 12px;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+    .badge.verde { background: var(--green); color: #fff; }
+    .badge.rojo { background: var(--red); color: #fff; }
+    .badge.gris { background: #8b949e; color: #fff; }
+    .loading { color: #8b949e; padding: 20px; }
+    .error { color: var(--red); padding: 20px; }
+    .demo-banner {
+      background: rgba(88, 166, 255, 0.15);
+      border: 1px solid var(--accent);
+      border-radius: 6px;
+      padding: 10px 16px;
+      margin-bottom: 16px;
+      font-size: 0.9rem;
+      display: none;
+    }
+    .demo-banner.activo { display: block; }
+    #panel-mapa { display: flex; flex-direction: column; min-height: 0; }
+    #panel-mapa .mapa-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
+    #panel-mapa .mapa-tip {
+      background: rgba(88, 166, 255, 0.12);
+      border: 1px solid var(--accent);
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 0.9rem;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    #panel-mapa .mapa-tip .icon-tip { font-size: 1.2rem; }
+    #map { position: absolute; top: 0; left: 0; right: 0; bottom: 0; border-radius: 8px; border: 1px solid var(--border); background: var(--card); }
+    #panel-mapa .toolbar { margin-bottom: 12px; }
+    .map-coords-toast {
+      position: absolute;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 20px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+      z-index: 1000;
+      display: none;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .map-coords-toast.activo { display: flex; }
+    .map-coords-toast .coords-text { font-family: monospace; font-size: 0.9rem; color: var(--accent); user-select: text; cursor: text; }
+    .map-coords-toast .btn-copy { background: var(--accent); color: var(--bg); border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 600; }
+    .map-coords-toast .btn-copy:hover { filter: brightness(1.1); }
+    .map-container-wrap { position: relative; flex: 1; min-height: calc(100vh - 220px); }
+    .leaflet-popup-content-wrapper { background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 8px; }
+    .leaflet-popup-content { margin: 12px 16px; min-width: 200px; }
+    .leaflet-container a.leaflet-popup-close-button { color: var(--text); }
+    .map-popup-edificio { min-width: 200px; }
+    .map-popup-title { font-weight: 600; margin-bottom: 6px; color: var(--accent); font-size: 1rem; }
+    .map-popup-subtitle { font-size: 0.85rem; color: #8b949e; margin-bottom: 10px; }
+    .map-popup-telefonos { border-top: 1px solid rgba(255,255,255,0.08); padding-top: 8px; }
+    .map-popup-tel { font-size: 0.85rem; margin: 6px 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .map-popup-tel .dot { flex-shrink: 0; width: 8px; height: 8px; border-radius: 50%; }
+    .map-popup-tel .dot.verde { background: var(--green); }
+    .map-popup-tel .dot.rojo { background: var(--red); }
+    .map-popup-tel .dot.gris { background: #8b949e; }
+    .map-popup-estado { color: #8b949e; font-size: 0.8rem; }
+    .map-popup-sin-telefonos { color: #8b949e; font-size: 0.85rem; }
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 100; align-items: center; justify-content: center; padding: 20px; }
+    .modal-overlay.activo { display: flex; }
+    .modal { background: #fff; border: 1px solid #d0d4d9; border-radius: 12px; width: 100%; max-width: 420px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.15); }
+    .modal .modal-header { background: #2563eb; color: #fff; padding: 14px 20px; margin: 0; font-size: 1.1rem; font-weight: 600; }
+    .modal .modal-body { padding: 24px; }
+    .modal .form-group { margin-bottom: 14px; }
+    .modal .form-group label { display: block; margin-bottom: 6px; font-size: 0.9rem; color: #000; font-weight: 500; }
+    .modal .form-group input, .modal .form-group select { width: 100%; padding: 10px 12px; background: #fff; border: 1px solid #d0d4d9; border-radius: 6px; color: #000; font-size: 1rem; }
+    .modal .form-group input::placeholder { color: #6b7280; }
+    .modal .form-group select { cursor: pointer; }
+    .modal .form-actions { margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end; }
+    .modal .form-actions button { padding: 8px 18px; border-radius: 6px; font-weight: 600; cursor: pointer; border: none; font-size: 0.95rem; }
+    .modal .form-actions .btn-primary { background: #2563eb; color: #fff; }
+    .modal .form-actions .btn-primary:hover { filter: brightness(1.05); }
+    .modal .form-actions .btn-secondary { background: #6b7280; color: #fff; }
+    .modal .form-actions .btn-secondary:hover { filter: brightness(1.1); }
+    .btn-editar { background: #388bfd; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; margin-right: 8px; font-weight: 500; }
+    .btn-editar:hover { filter: brightness(1.1); }
+    .btn-eliminar { background: var(--red); color: #fff; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 500; }
+    .btn-eliminar:hover { filter: brightness(1.1); }
+    .realtime-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+    .realtime-bar label { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.9rem; color: #8b949e; }
+    .realtime-bar input[type=checkbox] { width: 18px; height: 18px; }
+    .realtime-bar .realtime-status { font-size: 0.85rem; color: var(--green); }
+
+    /* Toast y notificaciones bonitas */
+    .toast-container {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      pointer-events: none;
+    }
+    .toast {
+      background: #1a2332;
+      color: #e6edf3;
+      padding: 16px 20px;
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      min-width: 300px;
+      max-width: 420px;
+      animation: toastIn 0.35s ease-out;
+      pointer-events: auto;
+      border-left: 4px solid var(--accent);
+    }
+    .toast.toast-error { border-left-color: #f85149; }
+    .toast.toast-success { border-left-color: #3fb950; }
+    .toast.toast-warning { border-left-color: #d29922; }
+    .toast-icon { font-size: 1.5rem; flex-shrink: 0; }
+    .toast-error .toast-icon { color: #f85149; }
+    .toast-success .toast-icon { color: #3fb950; }
+    .toast-warning .toast-icon { color: #d29922; }
+    .toast-message { flex: 1; font-size: 0.95rem; line-height: 1.4; }
+    @keyframes toastIn {
+      from { transform: translateX(120%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+
+    .modal-confirm-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.55);
+      z-index: 2000;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      backdrop-filter: blur(4px);
+    }
+    .modal-confirm-overlay.activo { display: flex; }
+    .modal-confirm {
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+      max-width: 400px;
+      width: 100%;
+      overflow: hidden;
+      animation: modalPop 0.3s ease-out;
+    }
+    @keyframes modalPop {
+      from { transform: scale(0.92); opacity: 0; }
+      to { transform: scale(1); opacity: 1; }
+    }
+    .modal-confirm-header {
+      padding: 20px 24px;
+      background: linear-gradient(135deg, #f85149 0%, #e5534b 100%);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .modal-confirm-header .icon { font-size: 1.8rem; }
+    .modal-confirm-header h3 { margin: 0; font-size: 1.15rem; font-weight: 600; }
+    .modal-confirm-body { padding: 24px; color: #333; font-size: 0.95rem; line-height: 1.5; }
+    .modal-confirm-actions {
+      padding: 0 24px 24px;
+      display: flex;
+      gap: 12px;
+      justify-content: flex-end;
+    }
+    .modal-confirm-actions button {
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      font-size: 0.95rem;
+    }
+    .modal-confirm-actions .btn-cancel {
+      background: #eaeef2;
+      color: #4a5568;
+    }
+    .modal-confirm-actions .btn-cancel:hover { background: #d0d7de; }
+    .modal-confirm-actions .btn-ok {
+      background: #f85149;
+      color: #fff;
+    }
+    .modal-confirm-actions .btn-ok:hover { filter: brightness(1.08); }
+  </style>
+</head>
+<body>
+  <div id="toast-container" class="toast-container"></div>
+  <div id="modal-confirm" class="modal-confirm-overlay" aria-hidden="true">
+    <div class="modal-confirm">
+      <div class="modal-confirm-header">
+        <span class="icon">⚠</span>
+        <h3 id="modal-confirm-title">Confirmar</h3>
+      </div>
+      <div class="modal-confirm-body" id="modal-confirm-body"></div>
+      <div class="modal-confirm-actions">
+        <button type="button" class="btn-cancel" id="modal-confirm-cancel">Cancelar</button>
+        <button type="button" class="btn-ok" id="modal-confirm-ok">Confirmar</button>
+      </div>
+    </div>
+  </div>
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <h1 class="logo">Instituto Tecnologico de Oaxaca</h1>
+      <span class="badge">Monitoreo de red (Telefonos)</span>
+    </div>
+    <div class="sidebar-sep"></div>
+    <nav class="sidebar-nav">
+      <button type="button" class="nav-item activo" data-panel="mapa"><span class="icon"></span> Mapa Campus</button>
+      <button type="button" class="nav-item" data-panel="dashboard"><span class="icon"></span> Dashboard</button>
+      <button type="button" class="nav-item" data-panel="croquis"><span class="icon"></span> Topologia</button>
+      {% if is_admin %}
+      <button type="button" class="nav-item" data-panel="tabla"><span class="icon"></span> Gestión Teléfonos</button>
+      <button type="button" class="nav-item" data-panel="edificios"><span class="icon"></span> Gestión Edificios</button>
+      <button type="button" class="nav-item" data-panel="usuarios"><span class="icon"></span> Usuarios</button>
+      {% endif %}
+      <a href="{{ url_for('logout') }}" class="nav-item nav-logout"><span class="icon"></span> Cerrar Sesión</a>
+    </nav>
+    <div class="sidebar-footer">Inst. Tecnológico de Oaxaca</div>
+  </aside>
+
+  <main class="main-content">
+  <div id="demo-banner" class="demo-banner">
+    Modo demo (sin MySQL): datos de prueba. Teléfonos con IP 8.8.8.8, 8.8.4.4, 1.1.1.1 y 10.255.255.254. Pulsa «Actualizar ping a todos» para ver verde/rojo.
+  </div>
+  <!-- Panel Topología: croquis Core -> Switches -> Teléfonos -->
+  <div id="panel-croquis" class="panel">
+    <div class="toolbar">
+      <button type="button" id="btn-ping-todos">Actualizar ping a todos</button>
+      <span class="status" id="status-ping"></span>
+    </div>
+    <div class="croquis" id="croquis"></div>
+  </div>
+
+  <!-- Panel Mapa Campus: Leaflet con marcadores por edificio, popup con extensiones -->
+  <div id="panel-mapa" class="panel activo">
+    <div class="mapa-header">
+      <h2 style="margin:0; font-size:1.25rem; color:black;">Mapa del Campus</h2>
+      <div class="mapa-tip">
+        <span class="icon-tip"></span>
+        <span style="color: black;">Tip: Haz clic en cualquier parte del mapa para obtener coordenadas GPS.</span>
+      </div>
+    </div>
+    <div class="toolbar">
+      <button type="button" id="btn-refrescar-mapa">Actualizar ping y mapa</button>
+      <span class="status">Telefono en verde (on) o rojo (off). Clic en el mapa = ver lat/lng.</span>
+    </div>
+    <div class="map-container-wrap">
+      <div id="map"></div>
+      <div id="map-coords-toast" class="map-coords-toast">
+        <span class="coords-text" id="map-coords-text"></span>
+        <button type="button" class="btn-copy" id="map-coords-copy">Copiar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Panel Gestión de Teléfonos: CRUD, paginación 10 por página, tiempo real opcional -->
+  <div id="panel-tabla" class="panel">
+    <h2 class="gestion-header" style="color: black;">Gestión de Teléfonos</h2>
+    <div class="toolbar">
+      <div class="realtime-bar">
+        <label style="color: black;"><input type="checkbox" id="realtime-toggle" checked> Actualización en tiempo real (ping cada 15 s)</label>
+        <span class="realtime-status" id="realtime-status"></span>
+      </div>
+      <div class="toolbar-buttons">
+        <button type="button" id="btn-agregar-telefono" class="btn-toolbar btn-agregar">Agregar teléfono</button>
+        <button type="button" id="btn-refrescar-tabla" class="btn-toolbar">Refrescar tabla</button>
+      </div>
+    </div>
+    <div class="tabla-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Extensión</th>
+            <th>IP</th>
+            <th>Modelo</th>
+            <th>Edificio</th>
+            <th>Ubicación</th>
+            <th>Estado ping</th>
+            <th>Último ping</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-tabla"></tbody>
+      </table>
+    </div>
+    <div id="paginacion-telefonos" class="paginacion-bar"></div>
+  </div>
+
+  {% if is_admin %}
+  <!-- Panel Gestión de Usuarios: crear, editar, eliminar (solo admin) -->
+  <div id="panel-usuarios" class="panel">
+    <h2 class="gestion-header" style="color: black;">Gestión de Usuarios</h2>
+    <p style="color:#333; margin-bottom:16px;">Crea usuarios (Administrador o Monitor). Los monitores solo pueden ver mapa, topología y dashboard. Puedes <strong>editar</strong> o <strong>eliminar</strong> usuarios desde la tabla.</p>
+    <div class="toolbar">
+      <button type="button" id="btn-agregar-usuario" class="btn-toolbar btn-agregar">Agregar usuario</button>
+      <button type="button" id="btn-refrescar-usuarios" class="btn-toolbar">Refrescar</button>
+    </div>
+    <div class="tabla-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Usuario</th>
+            <th>Nombre</th>
+            <th>Rol</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-usuarios"></tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Panel Dashboard: selector de edificio, tabla de extensiones por edificio -->
+  <div id="panel-dashboard" class="panel">
+    <h2 class="gestion-header" style="color: black;">Dashboard</h2>
+    <div class="dashboard-selector">
+      <label for="dashboard-edificio" style="color:#333; font-weight:600;">Seleccionar edificio:</label>
+      <select id="dashboard-edificio">
+        <option value="">— Elige un edificio —</option>
+      </select>
+      <button type="button" id="btn-dashboard-refrescar" class="btn-toolbar">Actualizar</button>
+    </div>
+    <div id="dashboard-tabla-wrap" class="tabla-wrap" style="margin-top:16px;">
+      <table>
+        <thead>
+          <tr>
+            <th>Extensión</th>
+            <th>IP</th>
+            <th>Ubicación</th>
+            <th>Estado</th>
+            <th>Último ping</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-dashboard"></tbody>
+      </table>
+    </div>
+    <div id="dashboard-empty" class="dashboard-empty" style="display:none; margin-top:20px; padding:24px; text-align:center; color:#666; font-size:1rem;">
+      Selecciona un edificio para ver sus extensiones.
+    </div>
+  </div>
+
+  <!-- Panel Gestión de Edificios: CRUD, no se puede borrar si tiene teléfonos -->
+  <div id="panel-edificios" class="panel">
+    <h2 class="gestion-header" style="color: black;">Gestión de Edificios</h2>
+    <div class="toolbar">
+      <div class="toolbar-buttons">
+        <button type="button" id="btn-agregar-edificio" class="btn-toolbar btn-agregar">Agregar edificio</button>
+        <button type="button" id="btn-refrescar-edificios" class="btn-toolbar">Refrescar</button>
+      </div>
+    </div>
+    <div class="tabla-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Nombre</th>
+            <th>Ubicación</th>
+            <th>Lat</th>
+            <th>Lng</th>
+            <th>Switch</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-edificios"></tbody>
+      </table>
+    </div>
+  </div>
+
+  </main>
+
+  <div id="modal-editar" class="modal-overlay" aria-hidden="true">
+    <div class="modal">
+      <div class="modal-header" id="modal-telefono-titulo">Editar teléfono</div>
+      <div class="modal-body">
+      <form id="form-editar-telefono">
+        <input type="hidden" id="edit-id">
+        <div class="form-group">
+          <label for="edit-extension">Extensión</label>
+          <input type="text" id="edit-extension" required placeholder="ej. 1001">
+        </div>
+        <div class="form-group">
+          <label for="edit-ip">IP</label>
+          <input type="text" id="edit-ip" required placeholder="ej. 192.168.1.10">
+        </div>
+        <div class="form-group">
+          <label for="edit-modelo">Modelo</label>
+          <input type="text" id="edit-modelo" placeholder="ej. Cisco 7960">
+        </div>
+        <div class="form-group">
+          <label for="edit-edificio">Edificio</label>
+          <select id="edit-edificio" required></select>
+        </div>
+        <div class="form-group">
+          <label for="edit-ubicacion">Ubicación</label>
+          <input type="text" id="edit-ubicacion" placeholder="ej. Oficina 101">
+        </div>
+        <div class="form-group">
+          <label for="edit-lat">Latitud (para mapa)</label>
+          <input type="text" id="edit-lat" placeholder="ej. 17.0778">
+        </div>
+        <div class="form-group">
+          <label for="edit-lng">Longitud (para mapa)</label>
+          <input type="text" id="edit-lng" placeholder="ej. -96.7442">
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn-secondary" id="btn-cerrar-modal">Cancelar</button>
+          <button type="submit" class="btn-primary">Guardar</button>
+        </div>
+      </form>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-edificio" class="modal-overlay" aria-hidden="true">
+    <div class="modal">
+      <div class="modal-header" id="modal-edificio-titulo">Editar edificio</div>
+      <div class="modal-body">
+        <form id="form-edificio">
+          <input type="hidden" id="edit-edificio-id">
+          <div class="form-group">
+            <label for="edit-edificio-nombre">Nombre</label>
+            <input type="text" id="edit-edificio-nombre" required placeholder="ej. Edificio A">
+          </div>
+          <div class="form-group">
+            <label for="edit-edificio-ubicacion">Ubicación</label>
+            <input type="text" id="edit-edificio-ubicacion" placeholder="ej. Edificio A">
+          </div>
+          <div class="form-group">
+            <label for="edit-edificio-lat">Latitud (para mapa)</label>
+            <input type="text" id="edit-edificio-lat" placeholder="ej. 17.0778">
+          </div>
+          <div class="form-group">
+            <label for="edit-edificio-lng">Longitud (para mapa)</label>
+            <input type="text" id="edit-edificio-lng" placeholder="ej. -96.7442">
+          </div>
+          <div class="form-group">
+            <label for="edit-edificio-switch">Switch (asociado)</label>
+            <select id="edit-edificio-switch"></select>
+          </div>
+          <div class="form-actions">
+            <button type="button" class="btn-secondary" id="btn-cerrar-modal-edificio">Cancelar</button>
+            <button type="submit" class="btn-primary">Guardar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  {% if is_admin %}
+  <div id="modal-usuario" class="modal-overlay" aria-hidden="true">
+    <div class="modal">
+      <div class="modal-header" id="modal-usuario-titulo">Agregar usuario</div>
+      <div class="modal-body">
+        <form id="form-usuario">
+          <input type="hidden" id="edit-usuario-id">
+          <div class="form-group">
+            <label for="edit-usuario-login">Usuario (login)</label>
+            <input type="text" id="edit-usuario-login" required placeholder="ej. operador2">
+          </div>
+          <div class="form-group">
+            <label for="edit-usuario-password">Contraseña</label>
+            <input type="password" id="edit-usuario-password" minlength="4" placeholder="mínimo 4 caracteres (dejar vacío para no cambiar)">
+          </div>
+          <div class="form-group">
+            <label for="edit-usuario-nombre">Nombre</label>
+            <input type="text" id="edit-usuario-nombre" placeholder="ej. Operador de turno">
+          </div>
+          <div class="form-group">
+            <label for="edit-usuario-rol">Rol</label>
+            <select id="edit-usuario-rol">
+              <option value="monitor">Monitor (solo ver)</option>
+              <option value="admin">Administrador</option>
+            </select>
+          </div>
+          <div class="form-actions">
+            <button type="button" class="btn-secondary" id="btn-cerrar-modal-usuario">Cancelar</button>
+            <button type="submit" class="btn-primary" id="btn-submit-usuario">Crear usuario</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script id="app-config" type="application/json">{"is_admin":{{ "true" if is_admin else "false" }}}</script>
+  <script>
+    /* ========== Configuración y utilidades ========== */
+    var IS_ADMIN = JSON.parse(document.getElementById('app-config').textContent).is_admin;
+    const croquisEl = document.getElementById('croquis');
+    const tbodyTabla = document.getElementById('tbody-tabla');
+    const statusPing = document.getElementById('status-ping');
+
+    /** fetch con redirección a login si 401 (no autorizado) */
+    function fetchAuth(url, opts) {
+      return fetch(url, opts).then(function(r) {
+        if (r.status === 401) { window.location.href = '/login'; return Promise.reject(); }
+        return r;
+      });
+    }
+
+    function showToast(message, type) {
+      type = type || 'info';
+      var icons = { error: '✕', success: '✓', warning: '⚠', info: 'ℹ' };
+      var el = document.createElement('div');
+      el.className = 'toast toast-' + type;
+      el.innerHTML = '<span class="toast-icon">' + (icons[type] || icons.info) + '</span><span class="toast-message">' + (message || '').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>';
+      document.getElementById('toast-container').appendChild(el);
+      setTimeout(function() {
+        el.style.animation = 'toastIn 0.3s ease-in reverse';
+        setTimeout(function() { el.remove(); }, 280);
+      }, 4500);
+    }
+    function showConfirm(title, message, onOk) {
+      var overlay = document.getElementById('modal-confirm');
+      document.getElementById('modal-confirm-title').textContent = title || 'Confirmar';
+      document.getElementById('modal-confirm-body').textContent = message || '';
+      var resolved = false;
+      function resolve(ok) {
+        if (resolved) return;
+        resolved = true;
+        overlay.classList.remove('activo');
+        if (ok && onOk) onOk();
+      }
+      overlay.classList.add('activo');
+      document.getElementById('modal-confirm-cancel').onclick = function() { resolve(false); };
+      document.getElementById('modal-confirm-ok').onclick = function() { resolve(true); };
+      overlay.onclick = function(e) { if (e.target === overlay) resolve(false); };
+    }
+
+    let mapInited = false;
+    let mapObj = null;
+    let mapMarkersLayer = null;
+    var TEC_OAXACA_CENTRO = [17.0778, -96.7442];
+
+    function switchTab(panelId) {
+      document.querySelectorAll('.panel').forEach(function(p) {
+        p.classList.remove('activo');
+        p.style.display = 'none';
+      });
+      document.querySelectorAll('.sidebar-nav .nav-item[data-panel]').forEach(function(b) { b.classList.remove('activo'); });
+      var panelEl = document.getElementById('panel-' + panelId);
+      if (panelEl) {
+        panelEl.classList.add('activo');
+        panelEl.style.display = 'flex';
+      }
+      var navEl = document.querySelector('.nav-item[data-panel="' + panelId + '"]');
+      if (navEl) navEl.classList.add('activo');
+      if (panelId === 'mapa') {
+        initMapIfNeeded();
+        refreshMapMarkers();
+        if (mapObj) setTimeout(function() { mapObj.invalidateSize(); }, 200);
+      }
+      if (panelId === 'edificios') cargarEdificiosTabla();
+      if (panelId === 'dashboard') cargarDashboard();
+      if (panelId === 'usuarios') cargarUsuariosTabla();
+    }
+    document.querySelectorAll('.sidebar-nav .nav-item[data-panel]').forEach(btn => {
+      btn.addEventListener('click', () => switchTab(btn.dataset.panel));
+    });
+
+    function initMapIfNeeded() {
+      if (mapInited || !window.L) return;
+      mapInited = true;
+      mapObj = L.map('map').setView(TEC_OAXACA_CENTRO, 18);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap',
+        maxZoom: 19
+      }).addTo(mapObj);
+      mapMarkersLayer = L.layerGroup().addTo(mapObj);
+
+      function copiarAlPortapapeles(texto, alCopiar, alFallar) {
+        if (navigator.clipboard && window.isSecureContext) {
+          navigator.clipboard.writeText(texto).then(alCopiar).catch(function() {
+            copiarConFallback(texto, alCopiar, alFallar);
+          });
+        } else {
+          copiarConFallback(texto, alCopiar, alFallar);
+        }
+      }
+      function copiarConFallback(texto, alCopiar, alFallar) {
+        var textarea = document.createElement('textarea');
+        textarea.value = texto;
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-9999px';
+        textarea.style.top = '0';
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        try {
+          var ok = document.execCommand('copy');
+          document.body.removeChild(textarea);
+          if (ok) alCopiar(); else alFallar();
+        } catch (err) {
+          document.body.removeChild(textarea);
+          alFallar();
+        }
+      }
+      mapObj.on('click', function(e) {
+        var lat = e.latlng.lat.toFixed(6);
+        var lng = e.latlng.lng.toFixed(6);
+        var text = lat + ', ' + lng;
+        var toast = document.getElementById('map-coords-toast');
+        var textEl = document.getElementById('map-coords-text');
+        if (toast && textEl) {
+          textEl.textContent = 'Lat: ' + lat + '  Long: ' + lng;
+          toast.classList.add('activo');
+          document.getElementById('map-coords-copy').onclick = function() {
+            copiarAlPortapapeles(text,
+              function() {
+                textEl.textContent = 'Copiado: ' + text;
+                setTimeout(function() { toast.classList.remove('activo'); }, 1500);
+              },
+              function() {
+                textEl.textContent = 'Selecciona y Ctrl+C: ' + text;
+              }
+            );
+          };
+          setTimeout(function() { toast.classList.remove('activo'); }, 8000);
+        }
+      });
+    }
+
+    function refreshMapMarkers() {
+      if (!mapMarkersLayer) return;
+      mapMarkersLayer.clearLayers();
+      fetchAuth('/api/topologia')
+        .then(r => r.json())
+        .then(data => {
+          const edificios = data.edificios || [];
+          edificios.forEach(ed => {
+            const lat = parseFloat(ed.lat);
+            const lng = parseFloat(ed.lng);
+            if (isNaN(lat) || isNaN(lng)) return;
+            const tels = ed.telefonos || [];
+            let allOk = true;
+            let anyPing = false;
+            tels.forEach(t => {
+              if (t.ultimo_ping_ok !== null && t.ultimo_ping_ok !== undefined) { anyPing = true; if (!t.ultimo_ping_ok) allOk = false; }
+            });
+            let color = '#8b949e';
+            if (anyPing) color = allOk ? '#3fb950' : '#f85149';
+            const icon = L.divIcon({
+              className: 'map-marker-icon',
+              html: '<div style="width:24px;height:24px;border-radius:50%;background:' + color + ';border:3px solid #0f1419;box-shadow:0 1px 4px rgba(0,0,0,0.4);"></div>',
+              iconSize: [24, 24],
+              iconAnchor: [12, 12]
+            });
+            var popupBody = '<div class="map-popup-edificio">';
+            popupBody += '<div class="map-popup-title">' + escapeHtml(ed.nombre || ed.ubicacion || 'Edificio') + '</div>';
+            if (ed.ubicacion) popupBody += '<div class="map-popup-subtitle">' + escapeHtml(ed.ubicacion) + '</div>';
+            if (tels.length > 0) {
+              popupBody += '<div class="map-popup-telefonos">';
+              tels.forEach(function(t) {
+                var dotClass = 'gris';
+                if (t.ultimo_ping_ok !== null && t.ultimo_ping_ok !== undefined) dotClass = t.ultimo_ping_ok ? 'verde' : 'rojo';
+                var estado = dotClass === 'verde' ? 'Conectado' : (dotClass === 'rojo' ? 'Sin respuesta' : 'Sin ping');
+                popupBody += '<div class="map-popup-tel"><span class="dot ' + dotClass + '"></span> ' + escapeHtml(t.extension) + ' – ' + escapeHtml(t.ubicacion || 'Sin ubicación') + ' <span class="map-popup-estado">(' + estado + ')</span></div>';
+              });
+              popupBody += '</div>';
+            } else {
+              popupBody += '<div class="map-popup-sin-telefonos">Sin teléfonos</div>';
+            }
+            popupBody += '</div>';
+            var marker = L.marker([lat, lng], { icon: icon }).bindPopup(popupBody);
+            mapMarkersLayer.addLayer(marker);
+          });
+        })
+        .catch(() => {});
+    }
+
+    function dibujarCroquis(data) {
+      const { core, switches, telefonos } = data;
+      if (!core || core.length === 0) {
+        croquisEl.innerHTML = '<p class="loading">No hay datos de topología. Ejecuta schema.sql en MySQL y añade core/switches/teléfonos.</p>';
+        return;
+      }
+
+      const c = core[0];
+      const sws = switches || [];
+      const tels = telefonos || [];
+
+      let html = '';
+
+      // Estructura árbol: core arriba → tronco → ramas (switch + teléfonos al lado)
+      html += '<div class="croquis-arbol">';
+      html += '<div class="arbol-core"><div class="titulo">' + escapeHtml(c.nombre) + '</div>';
+      if (c.ip_management) html += '<div class="sub">' + escapeHtml(c.ip_management) + '</div>';
+      html += '</div>';
+
+      if (sws.length === 0) {
+        html += '<p class="loading" style="margin-top:16px;">No hay switches con teléfonos. Asigna teléfonos a edificios (cada edificio tiene un switch) para ver la topología.</p>';
+        html += '</div>';
+        croquisEl.innerHTML = html;
+        return;
+      }
+
+      html += '<div class="arbol-tronco"></div>';
+      html += '<div class="arbol-ramas">';
+      sws.forEach(sw => {
+        const telsDelSwitch = tels.filter(t => t.switch_id === sw.id);
+        let swEstadoClass = 'sin-ping';
+        let swEstadoText = 'Sin ping';
+        if (sw.ultimo_ping_ok !== null && sw.ultimo_ping_ok !== undefined) {
+          swEstadoClass = sw.ultimo_ping_ok ? 'conectado' : 'desconectado';
+          swEstadoText = sw.ultimo_ping_ok ? 'Conectado' : 'Sin respuesta';
+        }
+        html += '<div class="arbol-rama">';
+        html += '<div class="arbol-linea"></div>';
+        html += '<div class="arbol-switch ' + swEstadoClass + '"><div class="titulo">' + escapeHtml(sw.nombre) + '</div>';
+        if (sw.ip_management) html += '<div class="sub">' + escapeHtml(sw.ip_management) + '</div>';
+        if (sw.ubicacion) html += '<div class="sub">' + escapeHtml(sw.ubicacion) + '</div>';
+        html += '<div class="estado">' + swEstadoText + '</div></div>';
+        html += '<div class="arbol-telefonos">';
+        telsDelSwitch.forEach(t => {
+          let estadoClass = 'sin-ping';
+          let estadoText = 'Sin ping';
+          if (t.ultimo_ping_ok !== null && t.ultimo_ping_ok !== undefined) {
+            estadoClass = t.ultimo_ping_ok ? 'conectado' : 'desconectado';
+            estadoText = t.ultimo_ping_ok ? 'Conectado' : 'Sin respuesta';
+          }
+          html += '<div class="arbol-telefono ' + estadoClass + '">';
+          html += '<div class="titulo">' + escapeHtml(t.extension) + '</div>';
+          html += '<div class="sub">' + escapeHtml(t.ip) + '</div>';
+          html += '<div class="estado">' + estadoText + '</div></div>';
+        });
+        if (telsDelSwitch.length === 0) html += '<span class="sub" style="font-size:0.8rem;">Sin teléfonos</span>';
+        html += '</div></div>';
+      });
+      html += '</div></div>';
+      croquisEl.innerHTML = html;
+    }
+
+    function escapeHtml(s) {
+      if (s == null) return '';
+      const div = document.createElement('div');
+      div.textContent = s;
+      return div.innerHTML;
+    }
+
+    function cargarTopologia() {
+      croquisEl.innerHTML = '<p class="loading">Cargando topología…</p>';
+      fetchAuth('/api/topologia')
+        .then(r => r.json())
+        .then(data => {
+          const banner = document.getElementById('demo-banner');
+          if (data.demo) banner.classList.add('activo');
+          else banner.classList.remove('activo');
+          dibujarCroquis(data);
+        })
+        .catch(() => { croquisEl.innerHTML = '<p class="error">Error al cargar. ¿Flask está corriendo?</p>'; });
+    }
+
+    let lastTelefonos = [];
+    let switchesList = [];
+    let edificiosList = [];
+
+    function cargarSwitches() {
+      return fetchAuth('/api/switches').then(r => r.json()).then(data => { switchesList = data.switches || []; return switchesList; });
+    }
+    function cargarEdificios() {
+      return fetchAuth('/api/edificios').then(r => r.json()).then(data => { edificiosList = data.edificios || []; return edificiosList; });
+    }
+
+    var dashboardTelefonos = [];
+    function cargarDashboard() {
+      var sel = document.getElementById('dashboard-edificio');
+      var tbody = document.getElementById('tbody-dashboard');
+      var wrap = document.getElementById('dashboard-tabla-wrap');
+      var empty = document.getElementById('dashboard-empty');
+      Promise.all([
+        fetchAuth('/api/edificios').then(r => r.json()),
+        fetchAuth('/api/telefonos_tabla').then(r => r.json())
+      ]).then(function(arr) {
+        var edificios = arr[0].edificios || [];
+        dashboardTelefonos = arr[1].telefonos || [];
+        sel.innerHTML = '<option value="">— Elige un edificio —</option>' +
+          edificios.map(function(e) { return '<option value="' + e.id + '">' + escapeHtml(e.nombre) + '</option>'; }).join('');
+        var val = sel.value;
+        if (val) actualizarDashboardTabla(val);
+        else {
+          tbody.innerHTML = '';
+          wrap.style.display = 'none';
+          empty.style.display = 'block';
+        }
+      }).catch(function() {
+        sel.innerHTML = '<option value="">Error al cargar</option>';
+      });
+    }
+    function actualizarDashboardTabla(edificioId) {
+      var tbody = document.getElementById('tbody-dashboard');
+      var wrap = document.getElementById('dashboard-tabla-wrap');
+      var empty = document.getElementById('dashboard-empty');
+      edificioId = parseInt(edificioId, 10);
+      var tels = dashboardTelefonos.filter(function(t) { return t.edificio_id === edificioId; });
+      if (tels.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5">Este edificio no tiene teléfonos asignados.</td></tr>';
+      } else {
+        tbody.innerHTML = tels.map(function(t) {
+          var badge = 'gris';
+          var texto = 'Sin ping';
+          if (t.ultimo_ping_ok !== null && t.ultimo_ping_ok !== undefined) {
+            badge = t.ultimo_ping_ok ? 'verde' : 'rojo';
+            texto = t.ultimo_ping_ok ? 'Conectado' : 'Sin respuesta';
+          }
+          var pingAt = t.ultimo_ping_at ? new Date(t.ultimo_ping_at).toLocaleString() : '—';
+          return '<tr><td>' + escapeHtml(t.extension) + '</td><td>' + escapeHtml(t.ip) + '</td><td>' + escapeHtml(t.ubicacion || '') + '</td><td><span class="badge ' + badge + '">' + texto + '</span></td><td>' + pingAt + '</td></tr>';
+        }).join('');
+      }
+      wrap.style.display = 'block';
+      empty.style.display = 'none';
+    }
+
+    var currentPageTelefonos = 1;
+    var ITEMS_PER_PAGE = 10;
+
+    function renderTablaPagina() {
+      if (!lastTelefonos || lastTelefonos.length === 0) {
+        tbodyTabla.innerHTML = '<tr><td colspan="8">No hay teléfonos registrados.</td></tr>';
+        document.getElementById('paginacion-telefonos').innerHTML = '';
+        return;
+      }
+      var totalPaginas = Math.ceil(lastTelefonos.length / ITEMS_PER_PAGE);
+      if (currentPageTelefonos > totalPaginas) currentPageTelefonos = totalPaginas;
+      if (currentPageTelefonos < 1) currentPageTelefonos = 1;
+      var start = (currentPageTelefonos - 1) * ITEMS_PER_PAGE;
+      var pageRows = lastTelefonos.slice(start, start + ITEMS_PER_PAGE);
+      tbodyTabla.innerHTML = pageRows.map(function(t) {
+        var badge = 'gris';
+        var texto = 'Sin ping';
+        if (t.ultimo_ping_ok !== null && t.ultimo_ping_ok !== undefined) {
+          badge = t.ultimo_ping_ok ? 'verde' : 'rojo';
+          texto = t.ultimo_ping_ok ? 'Conectado' : 'Sin respuesta';
+        }
+        var pingAt = t.ultimo_ping_at ? new Date(t.ultimo_ping_at).toLocaleString() : '—';
+        return '<tr data-id="' + t.id + '">' +
+          '<td>' + escapeHtml(t.extension) + '</td>' +
+          '<td class="col-ip">' + escapeHtml(t.ip) + '</td>' +
+          '<td>' + escapeHtml(t.modelo || '') + '</td>' +
+          '<td>' + escapeHtml(t.edificio_nombre || t.switch_nombre || '') + '</td>' +
+          '<td>' + escapeHtml(t.ubicacion || '') + '</td>' +
+          '<td><span class="badge ' + badge + '">' + texto + '</span></td>' +
+          '<td>' + pingAt + '</td>' +
+          '<td><button type="button" class="btn-editar" data-id="' + t.id + '">Editar</button><button type="button" class="btn-eliminar" data-id="' + t.id + '">Eliminar</button></td></tr>';
+      }).join('');
+      tbodyTabla.querySelectorAll('.btn-editar').forEach(function(btn) {
+        btn.addEventListener('click', function() { abrirModalEditar(parseInt(this.dataset.id, 10)); });
+      });
+      tbodyTabla.querySelectorAll('.btn-eliminar').forEach(function(btn) {
+        btn.addEventListener('click', function() { eliminarTelefono(parseInt(this.dataset.id, 10)); });
+      });
+      var pagEl = document.getElementById('paginacion-telefonos');
+      pagEl.innerHTML = '<button type="button" id="btn-pag-prev">Anterior</button>' +
+        '<span class="paginacion-info">Página ' + currentPageTelefonos + ' de ' + totalPaginas + ' (' + lastTelefonos.length + ' teléfonos)</span>' +
+        '<button type="button" id="btn-pag-next">Siguiente</button>';
+      document.getElementById('btn-pag-prev').disabled = currentPageTelefonos <= 1;
+      document.getElementById('btn-pag-next').disabled = currentPageTelefonos >= totalPaginas;
+      document.getElementById('btn-pag-prev').addEventListener('click', function() {
+        if (currentPageTelefonos > 1) { currentPageTelefonos--; renderTablaPagina(); }
+      });
+      document.getElementById('btn-pag-next').addEventListener('click', function() {
+        if (currentPageTelefonos < totalPaginas) { currentPageTelefonos++; renderTablaPagina(); }
+      });
+    }
+
+    function cargarTabla() {
+      tbodyTabla.innerHTML = '<tr><td colspan="8" class="loading">Cargando…</td></tr>';
+      document.getElementById('paginacion-telefonos').innerHTML = '';
+      fetchAuth('/api/telefonos_tabla')
+        .then(r => r.json())
+        .then(data => {
+          lastTelefonos = data.telefonos || [];
+          currentPageTelefonos = 1;
+          renderTablaPagina();
+        })
+        .catch(() => { tbodyTabla.innerHTML = '<tr><td colspan="8" class="error">Error al cargar.</td></tr>'; });
+    }
+
+    function abrirModalEditar(id) {
+      document.getElementById('modal-telefono-titulo').textContent = 'Editar teléfono';
+      const t = lastTelefonos.find(x => x.id === id);
+      if (!t) return;
+      function mostrar() {
+        document.getElementById('edit-id').value = t.id;
+        document.getElementById('edit-extension').value = t.extension || '';
+        document.getElementById('edit-ip').value = t.ip || '';
+        document.getElementById('edit-modelo').value = t.modelo || '';
+        document.getElementById('edit-ubicacion').value = t.ubicacion || '';
+        document.getElementById('edit-lat').value = (t.lat != null && t.lat !== '') ? t.lat : '';
+        document.getElementById('edit-lng').value = (t.lng != null && t.lng !== '') ? t.lng : '';
+        const sel = document.getElementById('edit-edificio');
+        sel.innerHTML = edificiosList.map(e => '<option value="' + e.id + '"' + (e.id === t.edificio_id ? ' selected' : '') + '>' + escapeHtml(e.nombre) + '</option>').join('');
+        sel.removeAttribute('required');
+        document.getElementById('modal-editar').classList.add('activo');
+      }
+      if (edificiosList.length === 0) cargarEdificios().then(mostrar);
+      else mostrar();
+    }
+
+    function abrirModalNuevo() {
+      document.getElementById('modal-telefono-titulo').textContent = 'Agregar teléfono';
+      document.getElementById('edit-id').value = '';
+      document.getElementById('edit-extension').value = '';
+      document.getElementById('edit-ip').value = '';
+      document.getElementById('edit-modelo').value = '';
+      document.getElementById('edit-ubicacion').value = '';
+      document.getElementById('edit-lat').value = '';
+      document.getElementById('edit-lng').value = '';
+      function mostrar() {
+        const sel = document.getElementById('edit-edificio');
+        sel.innerHTML = edificiosList.map(e => '<option value="' + e.id + '">' + escapeHtml(e.nombre) + '</option>').join('');
+        sel.setAttribute('required', 'required');
+        document.getElementById('modal-editar').classList.add('activo');
+      }
+      if (edificiosList.length === 0) cargarEdificios().then(mostrar);
+      else mostrar();
+    }
+
+    function eliminarTelefono(id) {
+      showConfirm('Eliminar teléfono', '¿Eliminar este teléfono? Esta acción no se puede deshacer.', function() {
+        fetchAuth('/api/telefonos/' + id, { method: 'DELETE' })
+          .then(r => r.json())
+          .then(data => {
+            if (data.error) { showToast(data.error, 'error'); return; }
+            showToast('Teléfono eliminado correctamente', 'success');
+            cargarTabla();
+            cargarTopologia();
+            if (mapMarkersLayer) refreshMapMarkers();
+          })
+          .catch(() => showToast('Error al eliminar', 'error'));
+      });
+    }
+
+    function cerrarModalEditar() {
+      document.getElementById('modal-editar').classList.remove('activo');
+    }
+
+    document.getElementById('btn-cerrar-modal').addEventListener('click', cerrarModalEditar);
+    document.getElementById('modal-editar').addEventListener('click', function(e) { if (e.target === this) cerrarModalEditar(); });
+    document.getElementById('btn-agregar-telefono').addEventListener('click', abrirModalNuevo);
+
+    var lastEdificios = [];
+    var tbodyEdificios = document.getElementById('tbody-edificios');
+    function cargarEdificiosTabla() {
+      tbodyEdificios.innerHTML = '<tr><td colspan="6" class="loading">Cargando…</td></tr>';
+      fetchAuth('/api/edificios')
+        .then(r => r.json())
+        .then(data => {
+          var rows = data.edificios || [];
+          lastEdificios = rows;
+          if (rows.length === 0) {
+            tbodyEdificios.innerHTML = '<tr><td colspan="6">No hay edificios. Agrega uno para el mapa.</td></tr>';
+            return;
+          }
+          tbodyEdificios.innerHTML = rows.map(function(e) {
+            var lat = e.lat != null && e.lat !== '' ? e.lat : '—';
+            var lng = e.lng != null && e.lng !== '' ? e.lng : '—';
+            return '<tr data-id="' + e.id + '">' +
+              '<td>' + escapeHtml(e.nombre || '') + '</td>' +
+              '<td>' + escapeHtml(e.ubicacion || '') + '</td>' +
+              '<td>' + escapeHtml(String(lat)) + '</td>' +
+              '<td>' + escapeHtml(String(lng)) + '</td>' +
+              '<td>' + escapeHtml(e.switch_nombre || '—') + '</td>' +
+              '<td><button type="button" class="btn-editar" data-id="' + e.id + '">Editar</button><button type="button" class="btn-eliminar" data-id="' + e.id + '">Eliminar</button></td></tr>';
+          }).join('');
+          tbodyEdificios.querySelectorAll('.btn-editar').forEach(function(btn) {
+            btn.addEventListener('click', function() { abrirModalEdificio(parseInt(this.dataset.id, 10)); });
+          });
+          tbodyEdificios.querySelectorAll('.btn-eliminar').forEach(function(btn) {
+            btn.addEventListener('click', function() { eliminarEdificio(parseInt(this.dataset.id, 10)); });
+          });
+        })
+        .catch(function() { tbodyEdificios.innerHTML = '<tr><td colspan="6" class="error">Error al cargar.</td></tr>'; });
+    }
+    function abrirModalEdificio(id) {
+      document.getElementById('modal-edificio-titulo').textContent = 'Editar edificio';
+      var e = lastEdificios.find(function(x) { return x.id === id; });
+      if (!e) return;
+      function mostrar() {
+        document.getElementById('edit-edificio-id').value = e.id;
+        document.getElementById('edit-edificio-nombre').value = e.nombre || '';
+        document.getElementById('edit-edificio-ubicacion').value = e.ubicacion || '';
+        document.getElementById('edit-edificio-lat').value = (e.lat != null && e.lat !== '') ? e.lat : '';
+        document.getElementById('edit-edificio-lng').value = (e.lng != null && e.lng !== '') ? e.lng : '';
+        var sel = document.getElementById('edit-edificio-switch');
+        sel.innerHTML = '<option value="">— Sin switch —</option>' + switchesList.map(function(s) {
+          return '<option value="' + s.id + '"' + (s.id === e.switch_id ? ' selected' : '') + '>' + escapeHtml(s.nombre) + '</option>';
+        }).join('');
+        document.getElementById('modal-edificio').classList.add('activo');
+      }
+      if (switchesList.length === 0) cargarSwitches().then(mostrar);
+      else mostrar();
+    }
+    function abrirModalNuevoEdificio() {
+      document.getElementById('modal-edificio-titulo').textContent = 'Agregar edificio';
+      document.getElementById('edit-edificio-id').value = '';
+      document.getElementById('edit-edificio-nombre').value = '';
+      document.getElementById('edit-edificio-ubicacion').value = '';
+      document.getElementById('edit-edificio-lat').value = '';
+      document.getElementById('edit-edificio-lng').value = '';
+      function mostrar() {
+        var sel = document.getElementById('edit-edificio-switch');
+        sel.innerHTML = '<option value="">— Sin switch —</option>' + switchesList.map(function(s) {
+          return '<option value="' + s.id + '">' + escapeHtml(s.nombre) + '</option>';
+        }).join('');
+        document.getElementById('modal-edificio').classList.add('activo');
+      }
+      if (switchesList.length === 0) cargarSwitches().then(mostrar);
+      else mostrar();
+    }
+    function cerrarModalEdificio() {
+      document.getElementById('modal-edificio').classList.remove('activo');
+    }
+    function eliminarEdificio(id) {
+      showConfirm('Eliminar edificio', '¿Eliminar este edificio? Solo se puede eliminar si no tiene teléfonos asignados. Si tiene teléfonos, primero muévelos a otro edificio o elimínalos.', function() {
+        fetchAuth('/api/edificios/' + id, { method: 'DELETE' })
+          .then(r => r.json())
+          .then(function(data) {
+            if (data.error) {
+              showToast(data.error, 'error');
+              return;
+            }
+            showToast('Edificio eliminado correctamente', 'success');
+            cargarEdificiosTabla();
+            cargarEdificios().then(function() {});
+            cargarTabla();
+            cargarTopologia();
+            if (mapMarkersLayer) refreshMapMarkers();
+          })
+          .catch(function() { showToast('Error al eliminar', 'error'); });
+      });
+    }
+    document.getElementById('btn-cerrar-modal-edificio').addEventListener('click', cerrarModalEdificio);
+    document.getElementById('modal-edificio').addEventListener('click', function(ev) { if (ev.target === this) cerrarModalEdificio(); });
+    document.getElementById('btn-agregar-edificio').addEventListener('click', abrirModalNuevoEdificio);
+    document.getElementById('btn-refrescar-edificios').addEventListener('click', function() { cargarEdificiosTabla(); cargarEdificios(); });
+    document.getElementById('form-edificio').addEventListener('submit', function(ev) {
+      ev.preventDefault();
+      var id = document.getElementById('edit-edificio-id').value;
+      var payload = {
+        nombre: document.getElementById('edit-edificio-nombre').value.trim(),
+        ubicacion: document.getElementById('edit-edificio-ubicacion').value.trim(),
+        lat: document.getElementById('edit-edificio-lat').value.trim() || null,
+        lng: document.getElementById('edit-edificio-lng').value.trim() || null,
+        switch_id: document.getElementById('edit-edificio-switch').value ? parseInt(document.getElementById('edit-edificio-switch').value, 10) : null
+      };
+      if (id) {
+        fetchAuth('/api/edificios/' + id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+          .then(r => r.json())
+          .then(function(data) {
+            if (data.error) { showToast(data.error, 'error'); return; }
+            showToast('Edificio actualizado correctamente', 'success');
+            cerrarModalEdificio();
+            cargarEdificiosTabla();
+            cargarEdificios();
+            cargarTabla();
+            cargarTopologia();
+            if (mapMarkersLayer) refreshMapMarkers();
+          })
+          .catch(function() { showToast('Error al guardar', 'error'); });
+      } else {
+        fetchAuth('/api/edificios', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+          .then(r => r.json())
+          .then(function(data) {
+            if (data.error) { showToast(data.error, 'error'); return; }
+            showToast('Edificio creado correctamente', 'success');
+            cerrarModalEdificio();
+            cargarEdificiosTabla();
+            cargarEdificios();
+            cargarTabla();
+            cargarTopologia();
+            if (mapMarkersLayer) refreshMapMarkers();
+          })
+          .catch(function() { showToast('Error al guardar', 'error'); });
+      }
+    });
+
+    /** Carga usuarios desde /api/usuarios y renderiza tabla con Editar/Eliminar */
+    function cargarUsuariosTabla() {
+      var tbody = document.getElementById('tbody-usuarios');
+      if (!tbody) return;
+      tbody.innerHTML = '<tr><td colspan="4" class="loading">Cargando…</td></tr>';
+      fetchAuth('/api/usuarios')
+        .then(r => r.json())
+        .then(function(data) {
+          var rows = data.usuarios || [];
+          if (rows.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4">No hay usuarios.</td></tr>';
+            return;
+          }
+          lastUsuarios = rows;
+          tbody.innerHTML = rows.map(function(u) {
+            var rolText = (u.rol || 'monitor') === 'admin' ? 'Administrador' : 'Monitor (solo ver)';
+            var id = u.id;
+            return '<tr data-id="' + escapeHtml(String(id)) + '"><td>' + escapeHtml(u.usuario) + '</td><td>' + escapeHtml(u.nombre || '') + '</td><td>' + escapeHtml(rolText) + '</td><td><button type="button" class="btn-editar btn-editar-usuario" data-id="' + escapeHtml(String(id)) + '">Editar</button><button type="button" class="btn-eliminar btn-eliminar-usuario" data-id="' + escapeHtml(String(id)) + '">Eliminar</button></td></tr>';
+          }).join('');
+          tbody.querySelectorAll('.btn-editar-usuario').forEach(function(btn) { btn.addEventListener('click', function() { abrirModalEditarUsuario(this.dataset.id); }); });
+          tbody.querySelectorAll('.btn-eliminar-usuario').forEach(function(btn) { btn.addEventListener('click', function() { eliminarUsuario(this.dataset.id); }); });
+        })
+        .catch(function() { tbody.innerHTML = '<tr><td colspan="4" class="error">Error al cargar.</td></tr>'; });
+    }
+    var lastUsuarios = [];
+    function abrirModalNuevoUsuario() {
+      document.getElementById('modal-usuario-titulo').textContent = 'Agregar usuario';
+      document.getElementById('edit-usuario-id').value = '';
+      document.getElementById('edit-usuario-login').value = '';
+      document.getElementById('edit-usuario-login').removeAttribute('readonly');
+      document.getElementById('edit-usuario-password').value = '';
+      document.getElementById('edit-usuario-password').required = true;
+      document.getElementById('edit-usuario-nombre').value = '';
+      document.getElementById('edit-usuario-rol').value = 'monitor';
+      document.getElementById('btn-submit-usuario').textContent = 'Crear usuario';
+      document.getElementById('modal-usuario').classList.add('activo');
+    }
+    function abrirModalEditarUsuario(id) {
+      var u = lastUsuarios.find(function(x) { return String(x.id) === String(id); });
+      if (!u) return;
+      document.getElementById('modal-usuario-titulo').textContent = 'Editar usuario';
+      document.getElementById('edit-usuario-id').value = u.id;
+      document.getElementById('edit-usuario-login').value = u.usuario;
+      document.getElementById('edit-usuario-login').setAttribute('readonly', 'readonly');
+      document.getElementById('edit-usuario-password').value = '';
+      document.getElementById('edit-usuario-password').required = false;
+      document.getElementById('edit-usuario-nombre').value = u.nombre || '';
+      document.getElementById('edit-usuario-rol').value = u.rol || 'monitor';
+      document.getElementById('btn-submit-usuario').textContent = 'Guardar';
+      document.getElementById('modal-usuario').classList.add('activo');
+    }
+    function eliminarUsuario(id) {
+      showConfirm('Eliminar usuario', '¿Eliminar este usuario? No podrá volver a iniciar sesión.', function() {
+        fetchAuth('/api/usuarios/' + encodeURIComponent(id), { method: 'DELETE' })
+          .then(r => r.json())
+          .then(function(data) {
+            if (data.error) { showToast(data.error, 'error'); return; }
+            showToast('Usuario eliminado correctamente', 'success');
+            cargarUsuariosTabla();
+          })
+          .catch(function() { showToast('Error al eliminar', 'error'); });
+      });
+    }
+    function cerrarModalUsuario() {
+      document.getElementById('modal-usuario').classList.remove('activo');
+    }
+    var btnAgregarUsuario = document.getElementById('btn-agregar-usuario');
+    if (btnAgregarUsuario) {
+      btnAgregarUsuario.addEventListener('click', abrirModalNuevoUsuario);
+      document.getElementById('btn-refrescar-usuarios').addEventListener('click', cargarUsuariosTabla);
+      document.getElementById('btn-cerrar-modal-usuario').addEventListener('click', cerrarModalUsuario);
+      document.getElementById('modal-usuario').addEventListener('click', function(ev) { if (ev.target === this) cerrarModalUsuario(); });
+      document.getElementById('form-usuario').addEventListener('submit', function(ev) {
+        ev.preventDefault();
+        var id = document.getElementById('edit-usuario-id').value;
+        var payload = {
+          nombre: document.getElementById('edit-usuario-nombre').value.trim(),
+          rol: document.getElementById('edit-usuario-rol').value
+        };
+        var pwd = document.getElementById('edit-usuario-password').value;
+        if (pwd) payload.password = pwd;
+        if (!id) {
+          payload.usuario = document.getElementById('edit-usuario-login').value.trim().toLowerCase();
+          if (!payload.usuario) { showToast('Usuario es obligatorio', 'error'); return; }
+          if (!pwd || pwd.length < 4) { showToast('Contraseña mínimo 4 caracteres', 'error'); return; }
+          fetchAuth('/api/usuarios', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+            .then(r => r.json())
+            .then(function(data) {
+              if (data.error) { showToast(data.error, 'error'); return; }
+              showToast('Usuario creado correctamente', 'success');
+              cerrarModalUsuario();
+              cargarUsuariosTabla();
+            })
+            .catch(function() { showToast('Error al crear usuario', 'error'); });
+        } else {
+          fetchAuth('/api/usuarios/' + encodeURIComponent(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+            .then(r => r.json())
+            .then(function(data) {
+              if (data.error) { showToast(data.error, 'error'); return; }
+              showToast('Usuario actualizado correctamente', 'success');
+              cerrarModalUsuario();
+              cargarUsuariosTabla();
+            })
+            .catch(function() { showToast('Error al actualizar', 'error'); });
+        }
+      });
+    }
+
+    document.getElementById('form-editar-telefono').addEventListener('submit', function(e) {
+      e.preventDefault();
+      const id = document.getElementById('edit-id').value;
+      const payload = {
+        extension: document.getElementById('edit-extension').value.trim(),
+        ip: document.getElementById('edit-ip').value.trim(),
+        modelo: document.getElementById('edit-modelo').value.trim(),
+        ubicacion: document.getElementById('edit-ubicacion').value.trim(),
+        edificio_id: parseInt(document.getElementById('edit-edificio').value, 10),
+        lat: document.getElementById('edit-lat').value.trim() || null,
+        lng: document.getElementById('edit-lng').value.trim() || null
+      };
+      if (id) {
+        fetchAuth('/api/telefonos/' + id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+          .then(r => r.json())
+          .then(data => {
+            if (data.error) { showToast(data.error, 'error'); return; }
+            showToast('Teléfono actualizado correctamente', 'success');
+            cerrarModalEditar();
+            cargarTabla();
+            cargarTopologia();
+            if (mapMarkersLayer) refreshMapMarkers();
+          })
+          .catch(() => showToast('Error al guardar', 'error'));
+      } else {
+        fetchAuth('/api/telefonos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+          .then(r => r.json())
+          .then(data => {
+            if (data.error) { showToast(data.error, 'error'); return; }
+            showToast('Teléfono agregado correctamente', 'success');
+            cerrarModalEditar();
+            cargarTabla();
+            cargarTopologia();
+            if (mapMarkersLayer) refreshMapMarkers();
+          })
+          .catch(() => showToast('Error al guardar', 'error'));
+      }
+    });
+
+    var realtimeInterval = null;
+    var lastPingTime = 0;
+    function iniciarTiempoReal() {
+      if (realtimeInterval) return;
+      function ejecutarPingYActualizar() {
+        lastPingTime = Date.now();
+        fetchAuth('/api/ping_todos').then(r => r.json()).then(() => {
+          cargarTopologia();
+          cargarTabla();
+          if (mapMarkersLayer) refreshMapMarkers();
+        }).catch(() => {});
+      }
+      ejecutarPingYActualizar();
+      realtimeInterval = setInterval(ejecutarPingYActualizar, 15000);
+    }
+    function detenerTiempoReal() {
+      if (realtimeInterval) { clearInterval(realtimeInterval); realtimeInterval = null; }
+    }
+    document.getElementById('realtime-toggle').addEventListener('change', function() {
+      if (this.checked) iniciarTiempoReal();
+      else detenerTiempoReal();
+    });
+    setInterval(function() {
+      const el = document.getElementById('realtime-status');
+      if (!document.getElementById('realtime-toggle').checked) { el.textContent = ''; return; }
+      if (!lastPingTime) { el.textContent = ''; return; }
+      const s = Math.floor((Date.now() - lastPingTime) / 1000);
+      el.textContent = 'Última actualización: hace ' + s + ' s';
+    }, 1000);
+
+    document.getElementById('btn-ping-todos').addEventListener('click', () => {
+      const btn = document.getElementById('btn-ping-todos');
+      btn.disabled = true;
+      statusPing.textContent = 'Haciendo ping a todos…';
+      fetchAuth('/api/ping_todos')
+        .then(r => r.json())
+        .then(data => {
+          statusPing.textContent = 'Ping actualizado a ' + (data.actualizados || 0) + ' teléfonos.';
+          cargarTopologia();
+          setTimeout(() => { statusPing.textContent = ''; }, 4000);
+        })
+        .catch(() => { statusPing.textContent = 'Error al ejecutar ping.'; })
+        .finally(() => { btn.disabled = false; });
+    });
+
+    document.getElementById('btn-refrescar-tabla').addEventListener('click', cargarTabla);
+
+    document.getElementById('dashboard-edificio').addEventListener('change', function() {
+      var val = this.value;
+      if (val) actualizarDashboardTabla(val);
+      else {
+        document.getElementById('tbody-dashboard').innerHTML = '';
+        document.getElementById('dashboard-tabla-wrap').style.display = 'none';
+        document.getElementById('dashboard-empty').style.display = 'block';
+      }
+    });
+    document.getElementById('btn-dashboard-refrescar').addEventListener('click', cargarDashboard);
+
+    document.getElementById('btn-refrescar-mapa').addEventListener('click', () => {
+      const btn = document.getElementById('btn-refrescar-mapa');
+      btn.disabled = true;
+      fetchAuth('/api/ping_todos')
+        .then(r => r.json())
+        .then(() => { refreshMapMarkers(); })
+        .finally(() => { btn.disabled = false; });
+    });
+
+    cargarTopologia();
+    cargarTabla();
+    cargarSwitches();
+    if (document.getElementById('realtime-toggle').checked) iniciarTiempoReal();
+    // Vista por defecto es Mapa Campus; inicializar mapa al cargar
+    setTimeout(function() {
+      initMapIfNeeded();
+      refreshMapMarkers();
+      if (mapObj) mapObj.invalidateSize();
+    }, 100);
+  </script>
+</body>
+</html>
